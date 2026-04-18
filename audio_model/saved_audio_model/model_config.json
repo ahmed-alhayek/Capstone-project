@@ -1,0 +1,21 @@
+{
+  "input_size": 220,
+  "num_classes": 8,
+  "emotions": [
+    "neutral",
+    "calm",
+    "happy",
+    "sad",
+    "angry",
+    "fearful",
+    "disgust",
+    "surprised"
+  ],
+  "config": {
+    "batch_size": 32,
+    "epochs": 80,
+    "learning_rate": 0.0005,
+    "dropout": 0.4,
+    "output_dir": "saved_audio_model"
+  }
+}
