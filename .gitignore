@@ -1,0 +1,22 @@
+.env
+saved_model/
+__pycache__/
+*.pyc
+
+
+
+node_modules/
+dist/
+build/
+
+
+venv/
+.venv/
+env/
+
+
+*.csv
+
+# Editors
+.vscode/
+.idea/

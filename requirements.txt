@@ -1,0 +1,17 @@
+flask
+flask-cors
+python-dotenv
+PyJWT
+bcrypt
+pymongo
+anthropic
+numpy
+pandas
+librosa
+torch
+torchaudio
+transformers
+scikit-learn
+tqdm
+scipy
+soundfile
