@@ -47,8 +47,8 @@ function Index() {
             </h1>
 
             <p className="mx-auto mt-6 max-w-xl text-pretty text-base leading-relaxed text-muted-foreground sm:text-lg">
-              Mindful is an emotionally intelligent companion for the in-between moments —
-              when you need to think out loud, soften, or just be met where you are.
+              Mindful is an emotionally intelligent companion for the in-between moments — when you
+              need to think out loud, soften, or just be met where you are.
             </p>
 
             <div className="mt-10 flex flex-wrap items-center justify-center gap-3">
@@ -71,9 +71,21 @@ function Index() {
           {/* Privacy pillars */}
           <div className="mx-auto mt-20 grid max-w-4xl gap-4 sm:grid-cols-3">
             {[
-              { icon: Lock, title: "End-to-end private", body: "Your sessions are encrypted before they leave your device." },
-              { icon: ShieldCheck, title: "Never sold", body: "No ads, no third-party trackers, no data brokers. Ever." },
-              { icon: Sparkles, title: "You own your data", body: "Export or delete everything in one tap, any time." },
+              {
+                icon: Lock,
+                title: "End-to-end private",
+                body: "Your sessions are encrypted before they leave your device.",
+              },
+              {
+                icon: ShieldCheck,
+                title: "Never sold",
+                body: "No ads, no third-party trackers, no data brokers. Ever.",
+              },
+              {
+                icon: Sparkles,
+                title: "You own your data",
+                body: "Export or delete everything in one tap, any time.",
+              },
             ].map(({ icon: Icon, title, body }, i) => (
               <GlassPanel
                 key={title}
@@ -90,8 +102,12 @@ function Index() {
       </main>
 
       <footer className="mx-auto max-w-6xl px-4 pb-10 text-center text-xs text-muted-foreground sm:px-6">
-        Mindful is a wellness companion, not a substitute for professional care. In a crisis, please call{" "}
-        <a href="tel:988" className="underline underline-offset-4 hover:text-foreground">988</a>.
+        Mindful is a wellness companion, not a substitute for professional care. In a crisis, please
+        call{" "}
+        <a href="tel:182" className="underline underline-offset-4 hover:text-foreground">
+          182
+        </a>
+        .
       </footer>
     </div>
   );

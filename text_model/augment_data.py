@@ -1,6 +1,6 @@
 """
 Data Augmentation Script
-AI Mental Health Companion | Capstone Project
+
 =============================================
 Generates synthetic sentences for all rare emotions using:
 1. Claude API — generates diverse new sentences
@@ -8,7 +8,7 @@ Generates synthetic sentences for all rare emotions using:
 
 Target: 5,000 samples per emotion
 
-📁 File location: mental_health_companion/text_model/augment_data.py
+
 """
 
 import os
@@ -158,7 +158,7 @@ def generate_sentences_with_claude(emotion, description, examples, count=100):
     Uses Claude API to generate diverse new sentences for a given emotion.
     Generates in batches of 50 to avoid token limits.
     """
-    print(f"  🤖 Generating {count} sentences for '{emotion}' using Claude...")
+    print(f"   Generating {count} sentences for '{emotion}' using Claude...")
     all_sentences = []
     batches       = count // 50
 
@@ -235,7 +235,7 @@ def augment_dataset():
         print(f"  Current: {current_count:,} | Target: {TARGET_SAMPLES:,} | Need: {needed:,}")
 
         if needed <= 0:
-            print(f"  ✅ Already at target!")
+            print(f"   Already at target!")
             continue
 
         # Step 1: Generate sentences with Claude
@@ -246,14 +246,14 @@ def augment_dataset():
             config['examples'],
             count=claude_count
         )
-        print(f"  ✅ Claude generated: {len(claude_sentences)} sentences")
+        print(f"   Claude generated: {len(claude_sentences)} sentences")
 
         # Step 2: Synonym replacement to fill remaining gap
         all_source    = claude_sentences + config['examples']
         synonym_count = needed - len(claude_sentences)
 
         if synonym_count > 0:
-            print(f"  🔄 Generating {synonym_count} more via synonym replacement...")
+            print(f"   Generating {synonym_count} more via synonym replacement...")
             synonym_sentences = augment_with_synonyms(
                 all_source,
                 target_count=needed,
@@ -263,7 +263,7 @@ def augment_dataset():
         else:
             all_sentences = claude_sentences[:needed]
 
-        print(f"  ✅ Total new sentences for {emotion}: {len(all_sentences)}")
+        print(f"   Total new sentences for {emotion}: {len(all_sentences)}")
 
         # Step 3: Create new rows for training data
         for sentence in all_sentences:
@@ -286,7 +286,7 @@ def augment_dataset():
         # Save augmented training data
         train_df.to_csv('train.csv', index=False)
         print(f"\n{'='*60}")
-        print(f"✅ AUGMENTATION COMPLETE")
+        print(f" AUGMENTATION COMPLETE")
         print(f"{'='*60}")
         print(f"Original samples : {len(train_df) - len(all_new_rows):,}")
         print(f"New samples added: {len(all_new_rows):,}")
@@ -298,7 +298,7 @@ def augment_dataset():
             bar   = "█" * int(count / 200)
             print(f"  {emotion:<15} {bar} {count:,}")
     else:
-        print("\n✅ All emotions already at target!")
+        print("\n All emotions already at target!")
 
 
 if __name__ == "__main__":

@@ -2,25 +2,26 @@
 """
 Flask Backend API — Mental Health Companion
 ===========================================
-REST API endpoints:
-- POST /api/register       → create account
-- POST /api/login          → login + get token
-- POST /api/chat           → send message, get AI response + emotions
-- POST /api/analyze-audio  → upload audio, get emotions
-- POST /api/session/end    → end session, save summary
-- GET  /api/session/history → get emotion history chart data
-- GET  /api/health         → server health check
+
 """
 
+
 import os
+os.environ["TRANSFORMERS_OFFLINE"] = "1"
+os.environ["HF_HUB_OFFLINE"] = "1"
+
 import sys
 import jwt
 import bcrypt
+import secrets
+import hashlib
 from datetime import datetime, timedelta
 from functools import wraps
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from dotenv import load_dotenv
+from audio_v2_route import audio_v2_bp
+from text_v2_route import text_v2_bp
 
 # ── Load environment variables ────────────────────────────────────────────────
 load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
@@ -31,12 +32,15 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 # ── Import our custom modules ─────────────────────────────────────────────────
 from chatbot import MentalHealthChatbot
 from database import DatabaseManager
+from email_service import send_password_reset_email
 
 # ── Load config from .env ─────────────────────────────────────────────────────
-JWT_SECRET       = os.getenv("JWT_SECRET")
-JWT_EXPIRY_HOURS = int(os.getenv("JWT_EXPIRY_HOURS", 24))
-CRISIS_THRESHOLD = int(os.getenv("CRISIS_THRESHOLD", 40))
-FLASK_PORT       = int(os.getenv("FLASK_PORT", 5000))
+JWT_SECRET               = os.getenv("JWT_SECRET")
+JWT_EXPIRY_HOURS         = int(os.getenv("JWT_EXPIRY_HOURS", 24))
+CRISIS_THRESHOLD         = int(os.getenv("CRISIS_THRESHOLD", 40))
+FLASK_PORT               = int(os.getenv("FLASK_PORT", 5000))
+RESET_TOKEN_EXPIRY_HOURS = int(os.getenv("RESET_TOKEN_EXPIRY_HOURS", 1))
+FRONTEND_URL             = os.getenv("FRONTEND_URL", "http://localhost:8080")
 
 if not JWT_SECRET:
     raise ValueError("❌ JWT_SECRET not found in .env file")
@@ -44,6 +48,8 @@ if not JWT_SECRET:
 # ── Flask App Setup ───────────────────────────────────────────────────────────
 app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": ["http://localhost:5173", "http://localhost:3000", "http://localhost:8080"]}}, supports_credentials=True)
+app.register_blueprint(audio_v2_bp)
+app.register_blueprint(text_v2_bp)
 
 # ── Initialize database ───────────────────────────────────────────────────────
 db = DatabaseManager()
@@ -101,6 +107,11 @@ def require_auth(f):
 
         return f(user_data, *args, **kwargs)
     return decorated
+
+
+def hash_token(token: str) -> str:
+    """SHA-256 hash a raw token so we never store the raw value in the DB."""
+    return hashlib.sha256(token.encode('utf-8')).hexdigest()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -172,6 +183,85 @@ def login():
         'message':  f"Welcome back, {user['username']}!",
         'token':    token,
         'username': user['username']
+    }), 200
+
+
+@app.route('/api/forgot-password', methods=['POST'])
+def forgot_password():
+    """
+    POST /api/forgot-password
+    Request : { "email": "..." }
+    Response: { "message": "..." }
+
+    Always returns success, even if the email doesn't exist, to prevent
+    attackers from using this endpoint to enumerate accounts.
+    """
+    data = request.get_json()
+
+    if not data or 'email' not in data:
+        return jsonify({'error': 'Email is required'}), 400
+
+    email = data['email'].strip().lower()
+    user  = db.find_user_by_email(email)
+
+    if user:
+        raw_token  = secrets.token_urlsafe(32)
+        token_hash = hash_token(raw_token)
+        expires_at = datetime.utcnow() + timedelta(hours=RESET_TOKEN_EXPIRY_HOURS)
+
+        db.create_password_reset_token(
+            user_id    = str(user['_id']),
+            token_hash = token_hash,
+            expires_at = expires_at
+        )
+
+        reset_link = f"{FRONTEND_URL}/reset-password?token={raw_token}"
+        send_password_reset_email(
+            to_email   = email,
+            reset_link = reset_link,
+            username   = user['username']
+        )
+
+    # Same response whether or not the email existed
+    return jsonify({
+        'message': "If an account exists with that email, a reset link has been sent."
+    }), 200
+
+
+@app.route('/api/reset-password', methods=['POST'])
+def reset_password():
+    """
+    POST /api/reset-password
+    Request : { "token": "...", "password": "new_password" }
+    Response: { "message": "Password updated successfully" }
+    """
+    data = request.get_json()
+
+    if not data or 'token' not in data or 'password' not in data:
+        return jsonify({'error': 'Token and new password are required'}), 400
+
+    raw_token    = data['token']
+    new_password = data['password']
+
+    if len(new_password) < 6:
+        return jsonify({'error': 'Password must be at least 6 characters'}), 400
+
+    token_hash = hash_token(raw_token)
+    token_doc  = db.find_password_reset_token(token_hash)
+
+    if not token_doc:
+        return jsonify({'error': 'Invalid or expired reset link'}), 400
+    if token_doc.get('used'):
+        return jsonify({'error': 'This reset link has already been used'}), 400
+    if token_doc.get('expires_at') < datetime.utcnow():
+        return jsonify({'error': 'This reset link has expired'}), 400
+
+    hashed = bcrypt.hashpw(new_password.encode('utf-8'), bcrypt.gensalt())
+    db.update_user_password(token_doc['user_id'], hashed)
+    db.mark_reset_token_used(token_hash)
+
+    return jsonify({
+        'message': 'Password updated successfully. You can now sign in.'
     }), 200
 
 
@@ -291,6 +381,22 @@ def get_history(user_data):
     return jsonify({'history': history}), 200
 
 
+@app.route('/api/messages', methods=['GET'])
+@require_auth
+def get_messages_by_date(user_data):
+    """
+    GET /api/messages?date=YYYY-MM-DD
+    Returns all messages for the authenticated user on the given date.
+    Response: { "messages": [ { role, content, emotions, score, timestamp }, ... ], "date": "YYYY-MM-DD" }
+    """
+    date_str = request.args.get('date', '').strip()
+    if not date_str:
+        return jsonify({'error': 'date query parameter required (YYYY-MM-DD)'}), 400
+
+    messages = db.get_messages_by_date(user_data['user_id'], date_str)
+    return jsonify({'messages': messages, 'date': date_str}), 200
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # HEALTH CHECK
 # ─────────────────────────────────────────────────────────────────────────────
@@ -309,6 +415,6 @@ def health_check():
 # ─────────────────────────────────────────────────────────────────────────────
 
 if __name__ == '__main__':
-    print("🚀 Starting Mental Health Companion API...")
-    print(f"📡 Server running at http://localhost:{FLASK_PORT}")
+    print(" Starting Mental Health Companion API...")
+    print(f" Server running at http://localhost:{FLASK_PORT}")
     app.run(debug=True, host='0.0.0.0', port=FLASK_PORT)

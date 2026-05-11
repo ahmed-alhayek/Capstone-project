@@ -1,8 +1,6 @@
-# mental_health_companion/audio_model/predict_audio.py
+
 """
-Audio Emotion Predictor
-AI Mental Health Companion | Capstone Project
-=============================================
+
 Loads the trained CNN+LSTM audio model and predicts
 emotions from a WAV audio file.
 

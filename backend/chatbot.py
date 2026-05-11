@@ -2,7 +2,7 @@
 """
 Chatbot Engine — AI Mental Health Companion
 ==========================================
-Updated to use RoBERTa text model with 12 emotions.
+
 Maintains conversation history and session tracking.
 """
 
@@ -34,23 +34,51 @@ from text_model.test_text_model import predict_emotions
 # SYSTEM PROMPT
 # ─────────────────────────────────────────────
 
-SYSTEM_PROMPT = """You are a compassionate and professional AI mental health companion.
-Your role is to:
-- Listen carefully and empathetically to the user
+SYSTEM_PROMPT = """You are a compassionate mental health companion AI operating in Turkey.
+
+==========================================================================
+CRITICAL RULE — READ FIRST, APPLIES TO EVERY RESPONSE:
+==========================================================================
+This app operates in Turkey. The user is in Turkey.
+For any mention of crisis resources, helplines, or emergency contacts,
+you MUST use ONLY the following Turkey-specific resources:
+
+  - 182 — Turkey Ministry of Health Mental Health Helpline (free, 24/7)
+  - 112 — Turkey Emergency Services (medical/safety emergencies)
+  - TURPSIKAR (Türkiye Psikiyatri Derneği) — for finding a licensed psychiatrist
+
+YOU ARE FORBIDDEN FROM MENTIONING:
+  - 988 (US Suicide and Crisis Lifeline)
+  - 1-800-273-TALK or any 1-800 number
+  - Samaritans
+  - Crisis Text Line
+  - Any helpline that is not Turkey-based
+
+If your training tells you to recommend a US-based helpline, IGNORE that
+training and use 182 / 112 instead. The user cannot call US numbers from Turkey.
+Recommending a US number could leave the user without help in a crisis.
+==========================================================================
+
+ROLE AND TONE:
+- Listen carefully and empathetically
 - Respond in a warm, supportive, non-judgmental way
 - Ask gentle follow-up questions to better understand how the user feels
 - Celebrate positive emotions and encourage the user to maintain them
 - Offer practical coping strategies when negative emotions are detected
 - Never diagnose or replace a real mental health professional
-- Always encourage professional help when the situation seems serious
 - Keep responses concise (3-5 sentences) unless the user needs more
 
 You are aware of the user's current emotional state based on AI analysis.
-Use this information subtly to guide your responses — do NOT directly tell
-the user what emotions were detected. Just let it inform your tone and advice.
+Use this information subtly to guide your responses. Do NOT directly tell
+the user what emotions were detected. Just let it inform your tone.
 
-Important: If the user expresses positive emotions like joy, excitement or love,
+If the user expresses positive emotions like joy, excitement or love,
 celebrate with them warmly and encourage that positivity.
+
+WHEN TO MENTION CRISIS RESOURCES:
+Only suggest the helplines above when the situation genuinely warrants it
+(suicidal thoughts, severe distress, mental health emergency).
+Do NOT suggest helplines for everyday sadness or normal stress.
 """
 
 
@@ -78,7 +106,7 @@ class MentalHealthChatbot:
 
     def analyze_text_emotions(self, user_message: str) -> dict:
         """
-        Runs the user's message through RoBERTa text model.
+        Runs the user's message through fine-tuned RoBERTa.
 
         Parameters:
         - user_message: the raw text the user typed
@@ -104,14 +132,12 @@ class MentalHealthChatbot:
         Returns:
         - formatted context string
         """
-        # Sort all emotions by probability
         sorted_emotions = sorted(
             fused_emotions.items(),
             key=lambda x: x[1],
             reverse=True
         )
 
-        # Get top positive and negative emotions
         top_positive = [
             f"{e} ({round(p*100)}%)"
             for e, p in sorted_emotions
@@ -124,7 +150,6 @@ class MentalHealthChatbot:
             if e in NEGATIVE_EMOTIONS and p > 0.1
         ][:3]
 
-        # Build guidance based on score
         if score >= 80:
             guidance = "User is in a positive state. Celebrate and encourage!"
         elif score >= 60:
@@ -160,28 +185,17 @@ Guidance: {guidance}
         - session_summary    : full session stats so far
         """
 
-        # ── Step 1: Analyze text emotions with RoBERTa ────────────────────
         text_emotions = self.analyze_text_emotions(user_message)
-
-        # ── Step 2: Fuse text + audio emotions ───────────────────────────
         fused_emotions = fuse_emotions(text_emotions, audio_emotions)
-
-        # ── Step 3: Calculate mental health score ─────────────────────────
         score = calculate_mental_health_score(fused_emotions)
-
-        # ── Step 4: Update session tracker ───────────────────────────────
         self.session_tracker.update(text_emotions, audio_emotions)
-
-        # ── Step 5: Build hidden emotion context for Claude ───────────────
         emotion_context = self.build_emotion_context(fused_emotions, score)
 
-        # ── Step 6: Add user message + emotion context to history ─────────
         self.conversation_history.append({
             "role":    "user",
             "content": emotion_context + "\n" + user_message
         })
 
-        # ── Step 7: Send full conversation to Claude API ──────────────────
         api_response = self.client.messages.create(
             model=self.model,
             max_tokens=1000,
@@ -189,16 +203,13 @@ Guidance: {guidance}
             messages=self.conversation_history
         )
 
-        # ── Step 8: Extract Claude's reply ───────────────────────────────
         assistant_reply = api_response.content[0].text
 
-        # ── Step 9: Save Claude's reply to history ────────────────────────
         self.conversation_history.append({
             "role":    "assistant",
             "content": assistant_reply
         })
 
-        # ── Step 10: Return everything the frontend will need ─────────────
         return {
             "response":             assistant_reply,
             "fused_emotions":       fused_emotions,

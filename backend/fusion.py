@@ -3,7 +3,7 @@
 Fusion Layer — Combines Text + Audio Emotions
 AI Mental Health Companion | Capstone Project
 =============================================
-Updated to work with RoBERTa's 12 emotion categories.
+
 Fuses text emotions + audio emotions into unified score.
 """
 
@@ -32,7 +32,7 @@ AUDIO_EMOTIONS = [
 AUDIO_TO_TEXT_MAP = {
     'neutral':   'neutral',
     'calm':      'neutral',
-    'happy':     'joy',         # now we have joy!
+    'happy':     'joy',         
     'sad':       'sadness',
     'angry':     'anger',
     'fearful':   'fear',
@@ -82,17 +82,8 @@ def fuse_emotions(text_emotions: dict, audio_emotions: dict = None,
     Combines text emotion probabilities and audio emotion probabilities
     into one unified emotion dictionary.
 
-    Parameters:
-    - text_emotions : dict  → { 'joy': 0.8, 'sadness': 0.1, ... }
-                              (probabilities from RoBERTa model)
-    - audio_emotions: dict  → { 'happy': 0.6, 'sad': 0.2, ... }
-                              (probabilities from CNN+LSTM model)
-                              Pass None if no audio input was given.
-    - text_weight   : float → how much to trust the text model  (default 70%)
-    - audio_weight  : float → how much to trust the audio model (default 30%)
-
-    Returns:
-    - fused dict → { 'joy': 0.74, 'sadness': 0.21, ... } (all 12 emotions)
+    
+    
     """
 
     # Start with all emotions at zero
@@ -103,7 +94,7 @@ def fuse_emotions(text_emotions: dict, audio_emotions: dict = None,
         if emotion in fused:
             fused[emotion] += prob * text_weight
 
-    # ── Step 2: Add weighted audio emotions (if provided) ────────────────────
+    # ── Step 2: Add weighted audio emotions  ────────────────────
     if audio_emotions:
         for audio_label, prob in audio_emotions.items():
             text_label = AUDIO_TO_TEXT_MAP.get(audio_label)
@@ -129,8 +120,7 @@ def calculate_mental_health_score(fused_emotions: dict) -> float:
     - 100 = perfectly healthy / calm / positive
     -   0 = extreme distress across all emotions
 
-    Positive emotions improve the score.
-    Negative emotions lower the score.
+    
     """
     distress_score = 0.0
 

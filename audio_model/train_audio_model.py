@@ -1,12 +1,5 @@
 """
-STEP 5 (Improved) — Audio Emotion Model with Data Augmentation
-AI Mental Health Companion | Capstone Project
-===============================================================
-This improved version adds data augmentation and a better model
-architecture to improve accuracy on the small RAVDESS dataset.
-
-📁 File location: mental_health_companion/audio_model/train_audio_model.py
-📋 Requires: X_train.npy, X_val.npy, y_train.npy, y_val.npy
+Audio Emotion Model with Data Augmentation
 """
 
 import numpy as np
@@ -54,12 +47,7 @@ def augment_features(X, y, augment_factor=3):
     """
     Creates artificial new samples by adding small random noise to existing ones.
     
-    Why this works:
-    - We only have ~1152 training samples for 8 classes
-    - Adding tiny random variations creates 'new' samples the model hasn't seen
-    - This prevents overfitting and improves generalization
     
-    augment_factor=3 means we create 3x more data → ~4608 training samples
     """
     X_augmented = [X]
     y_augmented = [y]
@@ -113,15 +101,7 @@ test_loader  = DataLoader(AudioDataset(X_test,  y_test),  batch_size=CONFIG["bat
 
 # ── IMPROVED MODEL ────────────────────────────────────────────────────────────
 class AudioEmotionModel(nn.Module):
-    """
-    Improved CNN + LSTM model.
     
-    Key improvements over previous version:
-    - Added a 3rd CNN block for deeper feature extraction
-    - Added residual-style skip connections via larger hidden sizes
-    - Better dropout placement to reduce overfitting
-    - BatchNorm after every layer for stable training
-    """
     def __init__(self, input_size=220, num_classes=NUM_CLASSES, dropout=CONFIG["dropout"]):
         super(AudioEmotionModel, self).__init__()
 
@@ -256,7 +236,7 @@ for epoch in range(CONFIG["epochs"]):
     if val_acc > best_val_acc:
         best_val_acc = val_acc
         torch.save(model.state_dict(), os.path.join(CONFIG["output_dir"], 'best_model.pt'))
-        print(f"  ✅ Best model saved! (Val Acc: {best_val_acc:.3f})")
+        print(f"   Best model saved! (Val Acc: {best_val_acc:.3f})")
 
 # ── FINAL RESULTS ─────────────────────────────────────────────────────────────
 print(f"\n{'='*60}")
@@ -276,5 +256,5 @@ with open(os.path.join(CONFIG["output_dir"], 'model_config.json'), "w") as f:
     json.dump({"input_size": 220, "num_classes": NUM_CLASSES,
                "emotions": EMOTION_LABELS, "config": CONFIG}, f, indent=2)
 
-print(f"\n✅ Model saved to '{CONFIG['output_dir']}/'")
-print(f"✅ History saved to 'audio_training_history.json'")
+print(f"\n Model saved to '{CONFIG['output_dir']}/'")
+print(f" History saved to 'audio_training_history.json'")

@@ -1,13 +1,20 @@
 import * as React from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { Mic, MicOff, Send, MessageSquare, Settings, Plus, X } from "lucide-react";
+import { Mic, MicOff, Send, MessageSquare, Settings, Plus, X, Upload } from "lucide-react";
 import { SiteHeader } from "@/components/site-header";
 import { TelemetryPill } from "@/components/mindful/telemetry-pill";
 import { BreathingOrb, type OrbState } from "@/components/mindful/breathing-orb";
 import { CrisisBanner } from "@/components/mindful/crisis-banner";
 import { Textarea } from "@/components/ui/textarea";
 import { type Message, type ScoreState, emotionsToMood } from "@/lib/mock";
-import { sendMessage, getHistory } from "@/lib/api";
+import {
+  sendMessage,
+  getHistory,
+  analyzeAudioV2,
+  getMessagesByDate,
+  type AudioAnalysisResult,
+} from "@/lib/api";
+import { useAudioRecorder } from "@/hooks/use-audio-recorder";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/chat")({
@@ -36,23 +43,72 @@ type HistoryEntry = {
   total_messages: number;
 };
 
+// ─── Per-user chat persistence in localStorage ─────────────────────────
+const STORAGE_KEY_PREFIX = "mindful_chat_state:";
+
+type PersistedChatState = {
+  messages: Message[];
+  score: ScoreState;
+  emotions: FusedEmotions | null;
+};
+
+function getStorageKey(): string | null {
+  const username = localStorage.getItem("username");
+  return username ? `${STORAGE_KEY_PREFIX}${username}` : null;
+}
+
+function loadChatState(): Partial<PersistedChatState> {
+  const key = getStorageKey();
+  if (!key) return {};
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveChatState(state: PersistedChatState) {
+  const key = getStorageKey();
+  if (!key) return;
+  try {
+    localStorage.setItem(key, JSON.stringify(state));
+  } catch {
+    // quota or serialization error — ignore
+  }
+}
+
+function clearChatState() {
+  const key = getStorageKey();
+  if (!key) return;
+  try {
+    localStorage.removeItem(key);
+  } catch {
+    // ignore
+  }
+}
+
 function ChatPage() {
-  const [messages, setMessages] = React.useState<Message[]>([]);
+  const persisted = React.useMemo(() => loadChatState(), []);
+
+  const [messages, setMessages] = React.useState<Message[]>(persisted.messages ?? []);
   const [draft, setDraft] = React.useState("");
   const [mode, setMode] = React.useState<"text" | "voice">("text");
-  const [orbState, setOrbState] = React.useState<OrbState>("idle");
   const [crisisDemo, setCrisisDemo] = React.useState(false);
-  const [score, setScore] = React.useState<ScoreState>({
-    value: 100,
-    mood: "calm",
-    trend: "steady",
-  });
-  const [emotions, setEmotions] = React.useState<FusedEmotions | null>(null);
+  const [score, setScore] = React.useState<ScoreState>(
+    persisted.score ?? { value: 100, mood: "calm", trend: "steady" },
+  );
+  const [emotions, setEmotions] = React.useState<FusedEmotions | null>(persisted.emotions ?? null);
   const [history, setHistory] = React.useState<HistoryEntry[]>([]);
   const [showCrisis, setShowCrisis] = React.useState(false);
   const [crisisDismissed, setCrisisDismissed] = React.useState(false);
   const [thinking, setThinking] = React.useState(false);
   const scrollRef = React.useRef<HTMLDivElement>(null);
+
+  // Past-session viewing
+  const [viewingDate, setViewingDate] = React.useState<string | null>(null);
+  const [viewedMessages, setViewedMessages] = React.useState<Message[]>([]);
+  const [viewedLoading, setViewedLoading] = React.useState(false);
 
   // Load real session history on mount
   React.useEffect(() => {
@@ -61,6 +117,11 @@ function ChatPage() {
       .catch((err) => console.warn("Could not load session history:", err));
   }, []);
 
+  // Persist chat state whenever messages / score / emotions change
+  React.useEffect(() => {
+    saveChatState({ messages, score, emotions });
+  }, [messages, score, emotions]);
+
   React.useEffect(() => {
     if (score.value < 40 && !crisisDismissed) setShowCrisis(true);
     if (score.value >= 50) setCrisisDismissed(false);
@@ -68,7 +129,7 @@ function ChatPage() {
 
   React.useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
-  }, [messages, thinking]);
+  }, [messages, viewedMessages, thinking]);
 
   const send = async () => {
     const text = draft.trim();
@@ -85,7 +146,6 @@ function ChatPage() {
         { id: `a-${Date.now()}`, role: "ai", text: response.response, ts: Date.now() },
       ]);
 
-      // Use the REAL dominant emotion from RoBERTa, not a score-based guess
       const newScore = response.mental_health_score;
       const previousValue = score.value;
       const trend: ScoreState["trend"] =
@@ -104,6 +164,47 @@ function ChatPage() {
     }
   };
 
+  const clearChat = () => {
+    setMessages([]);
+    setScore({ value: 100, mood: "calm", trend: "steady" });
+    setEmotions(null);
+    setShowCrisis(false);
+    setCrisisDismissed(false);
+    clearChatState();
+  };
+
+  const viewPastSession = async (dateStr: string) => {
+    setViewingDate(dateStr);
+    setViewedLoading(true);
+    setViewedMessages([]);
+    try {
+      const data = await getMessagesByDate(dateStr);
+      const converted: Message[] = data.messages.map((m, i) => ({
+        id: `past-${dateStr}-${i}`,
+        role: m.role === "assistant" ? "ai" : "user",
+        text: m.content,
+        ts: m.timestamp ? new Date(m.timestamp).getTime() : Date.now(),
+      }));
+      setViewedMessages(converted);
+    } catch (err) {
+      console.error("Failed to load past session", err);
+    } finally {
+      setViewedLoading(false);
+    }
+  };
+
+  const returnToToday = () => {
+    setViewingDate(null);
+    setViewedMessages([]);
+  };
+
+  const displayedMessages = viewingDate ? viewedMessages : messages;
+
+  // Called when VoiceMode finishes analyzing audio with HuBERT
+  const handleAudioAnalyzed = (result: AudioAnalysisResult) => {
+    setEmotions(result.emotions);
+  };
+
   return (
     <div className="min-h-screen bg-background">
       <SiteHeader />
@@ -119,14 +220,23 @@ function ChatPage() {
                 </span>
                 <button
                   type="button"
+                  onClick={clearChat}
                   className="inline-flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   aria-label="New session"
+                  title="Start a new session"
                 >
                   <Plus className="h-4 w-4" />
                 </button>
               </div>
               <div className="space-y-1">
-                <button className="w-full rounded-xl bg-primary-soft px-3 py-2.5 text-left text-sm font-medium transition-colors">
+                <button
+                  type="button"
+                  onClick={returnToToday}
+                  className={cn(
+                    "w-full rounded-xl px-3 py-2.5 text-left text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    !viewingDate ? "bg-primary-soft" : "hover:bg-muted",
+                  )}
+                >
                   <div className="flex items-center gap-2">
                     <span
                       className="h-1.5 w-1.5 rounded-full"
@@ -134,7 +244,9 @@ function ChatPage() {
                     />
                     Today
                   </div>
-                  <div className="mt-0.5 truncate text-xs text-muted-foreground">In progress…</div>
+                  <div className="mt-0.5 truncate text-xs text-muted-foreground">
+                    {!viewingDate ? "In progress…" : "Click to return"}
+                  </div>
                 </button>
 
                 {history.length === 0 ? (
@@ -145,7 +257,12 @@ function ChatPage() {
                   history.slice(0, 5).map((s, i) => (
                     <button
                       key={`${s.date}-${i}`}
-                      className="w-full rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      type="button"
+                      onClick={() => viewPastSession(s.date)}
+                      className={cn(
+                        "w-full rounded-xl px-3 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                        viewingDate === s.date ? "bg-primary-soft" : "hover:bg-muted",
+                      )}
                     >
                       <div className="text-sm">{formatDate(s.date)}</div>
                       <div className="mt-0.5 truncate text-xs text-muted-foreground">
@@ -206,7 +323,7 @@ function ChatPage() {
             </div>
 
             {/* Emotion breakdown */}
-            {emotions && <EmotionBreakdown emotions={emotions} />}
+            {emotions && !viewingDate && <EmotionBreakdown emotions={emotions} />}
           </div>
         </aside>
 
@@ -215,15 +332,19 @@ function ChatPage() {
           {/* Top bar */}
           <div className="mb-4 flex items-center justify-between">
             <div>
-              <h1 className="text-lg font-semibold tracking-tight">A quiet moment</h1>
+              <h1 className="text-lg font-semibold tracking-tight">
+                {viewingDate ? `Session · ${formatDate(viewingDate)}` : "A quiet moment"}
+              </h1>
               <p className="text-xs text-muted-foreground">
-                No rush. We can sit here as long as you need.
+                {viewingDate
+                  ? "A look back. Read-only."
+                  : "No rush. We can sit here as long as you need."}
               </p>
             </div>
             <TelemetryPill state={score} />
           </div>
 
-          {showCrisis && !crisisDismissed && (
+          {showCrisis && !crisisDismissed && !viewingDate && (
             <div className="mb-4">
               <CrisisBanner onDismiss={() => setCrisisDismissed(true)} />
             </div>
@@ -236,10 +357,16 @@ function ChatPage() {
                 ref={scrollRef}
                 className="flex-1 space-y-4 overflow-y-auto rounded-3xl border border-border-soft bg-surface-elevated/40 p-4 sm:p-6"
               >
-                {messages.map((m) => (
-                  <MessageBubble key={m.id} message={m} />
-                ))}
-                {thinking && (
+                {viewedLoading && viewingDate ? (
+                  <p className="text-center text-sm text-muted-foreground">Loading…</p>
+                ) : displayedMessages.length === 0 && viewingDate ? (
+                  <p className="text-center text-sm text-muted-foreground">
+                    No messages on this day.
+                  </p>
+                ) : (
+                  displayedMessages.map((m) => <MessageBubble key={m.id} message={m} />)
+                )}
+                {!viewingDate && thinking && (
                   <div className="flex justify-start">
                     <div className="rounded-2xl rounded-bl-md bg-primary-soft px-4 py-3">
                       <span className="inline-flex gap-1">
@@ -259,54 +386,65 @@ function ChatPage() {
                 )}
               </div>
 
-              {/* Composer */}
-              <div className="mt-4">
-                <div className="glass relative flex items-end gap-2 rounded-2xl p-2.5 shadow-elevated">
-                  <Textarea
-                    value={draft}
-                    onChange={(e) => setDraft(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && !e.shiftKey) {
-                        e.preventDefault();
-                        send();
-                      }
-                    }}
-                    placeholder="Whatever's here is welcome…"
-                    rows={1}
-                    className="min-h-[40px] resize-none border-0 bg-transparent p-2 text-[15px] leading-relaxed shadow-none focus-visible:ring-0"
-                  />
+              {/* Composer or past-session banner */}
+              {viewingDate ? (
+                <div className="mt-4 rounded-2xl border border-border bg-surface-elevated p-4 text-center shadow-soft">
+                  <p className="text-sm text-muted-foreground">
+                    Viewing {formatDate(viewingDate)} · read-only
+                  </p>
                   <button
                     type="button"
-                    onClick={() => setMode("voice")}
-                    className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    aria-label="Switch to voice"
+                    onClick={returnToToday}
+                    className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-foreground underline-offset-4 hover:underline"
                   >
-                    <Mic className="h-4 w-4" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={send}
-                    disabled={!draft.trim()}
-                    className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-soft transition-all hover:shadow-elevated disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-                    aria-label="Send message"
-                  >
-                    <Send className="h-4 w-4" />
+                    ← Back to today's session
                   </button>
                 </div>
-                <div className="mt-3 flex items-center justify-between px-1 text-[11px] text-muted-foreground">
-                  <span>Press Enter to send · Shift+Enter for a new line</span>
-                  <Link to="/summary" className="underline-offset-4 hover:underline">
-                    End session
-                  </Link>
+              ) : (
+                <div className="mt-4">
+                  <div className="glass relative flex items-end gap-2 rounded-2xl p-2.5 shadow-elevated">
+                    <Textarea
+                      value={draft}
+                      onChange={(e) => setDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && !e.shiftKey) {
+                          e.preventDefault();
+                          send();
+                        }
+                      }}
+                      placeholder="Whatever's here is welcome…"
+                      rows={1}
+                      className="min-h-[40px] resize-none border-0 bg-transparent p-2 text-[15px] leading-relaxed shadow-none focus-visible:ring-0"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setMode("voice")}
+                      className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      aria-label="Switch to voice"
+                    >
+                      <Mic className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={send}
+                      disabled={!draft.trim()}
+                      className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-soft transition-all hover:shadow-elevated disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                      aria-label="Send message"
+                    >
+                      <Send className="h-4 w-4" />
+                    </button>
+                  </div>
+                  <div className="mt-3 flex items-center justify-between px-1 text-[11px] text-muted-foreground">
+                    <span>Press Enter to send · Shift+Enter for a new line</span>
+                    <Link to="/summary" className="underline-offset-4 hover:underline">
+                      End session
+                    </Link>
+                  </div>
                 </div>
-              </div>
+              )}
             </>
           ) : (
-            <VoiceMode
-              orbState={orbState}
-              setOrbState={setOrbState}
-              onExit={() => setMode("text")}
-            />
+            <VoiceMode onExit={() => setMode("text")} onAudioAnalyzed={handleAudioAnalyzed} />
           )}
         </section>
       </div>
@@ -353,7 +491,6 @@ function MessageBubble({ message }: { message: Message }) {
 
 // ─── Emotion breakdown card ────────────────────────────────────────────
 function EmotionBreakdown({ emotions }: { emotions: FusedEmotions }) {
-  // Sort emotions by score, take top 5
   const sorted = Object.entries(emotions)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 5);
@@ -398,7 +535,6 @@ function EmotionBreakdown({ emotions }: { emotions: FusedEmotions }) {
 
 // ─── Helpers ───────────────────────────────────────────────────────────
 function formatDate(raw: string): string {
-  // Backend returns "2026-04-30 11:12"
   const d = new Date(raw.replace(" ", "T"));
   if (isNaN(d.getTime())) return raw;
   return d.toLocaleDateString("en", { weekday: "short", month: "short", day: "numeric" });
@@ -409,30 +545,96 @@ function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
+// ─── Voice mode (real HuBERT recording + file upload) ──────────────────
 function VoiceMode({
-  orbState,
-  setOrbState,
   onExit,
+  onAudioAnalyzed,
 }: {
-  orbState: OrbState;
-  setOrbState: (s: OrbState) => void;
   onExit: () => void;
+  onAudioAnalyzed: (result: AudioAnalysisResult) => void;
 }) {
-  const toggle = () => {
-    if (orbState === "idle") {
-      setOrbState("recording");
-    } else if (orbState === "recording") {
-      setOrbState("processing");
-      setTimeout(() => setOrbState("idle"), 2200);
+  const { state, duration, start, stop } = useAudioRecorder();
+  const [uploading, setUploading] = React.useState(false);
+  const [lastResult, setLastResult] = React.useState<AudioAnalysisResult | null>(null);
+  const [errorMsg, setErrorMsg] = React.useState<string | null>(null);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  const orbState: OrbState = uploading
+    ? "processing"
+    : state === "recording"
+      ? "recording"
+      : "idle";
+
+  const label = uploading
+    ? "Analyzing audio…"
+    : state === "recording"
+      ? "Listening…"
+      : state === "requesting"
+        ? "Allow microphone…"
+        : lastResult
+          ? `Detected: ${lastResult.dominant_emotion}`
+          : "Tap the mic, or upload a file";
+
+  const handleClick = async () => {
+    if (uploading) return;
+    setErrorMsg(null);
+
+    if (state === "idle") {
+      try {
+        await start();
+      } catch (err: unknown) {
+        const name = (err as { name?: string })?.name;
+        setErrorMsg(
+          name === "NotAllowedError"
+            ? "Microphone permission denied"
+            : "Could not access microphone",
+        );
+      }
+      return;
+    }
+
+    if (state === "recording") {
+      try {
+        const wav = await stop();
+        if (wav.size < 4000) {
+          setErrorMsg("Recording too short — try a longer message");
+          return;
+        }
+        setUploading(true);
+        const result = await analyzeAudioV2(wav);
+        setLastResult(result);
+        onAudioAnalyzed(result);
+      } catch (err) {
+        console.error(err);
+        setErrorMsg("Voice analysis failed");
+      } finally {
+        setUploading(false);
+      }
     }
   };
 
-  const label =
-    orbState === "recording"
-      ? "Listening…"
-      : orbState === "processing"
-        ? "Thinking…"
-        : "Tap to speak";
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    if (!file) return;
+
+    setErrorMsg(null);
+    setUploading(true);
+    try {
+      const result = await analyzeAudioV2(file);
+      setLastResult(result);
+      onAudioAnalyzed(result);
+    } catch (err) {
+      console.error(err);
+      setErrorMsg("Could not analyze that audio file");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const fmt = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, "0")}`;
+
+  const buttonDisabled = uploading || state === "requesting";
 
   return (
     <div className="relative flex flex-1 flex-col items-center justify-center rounded-3xl border border-border-soft bg-surface-elevated/40 p-6">
@@ -451,24 +653,58 @@ function VoiceMode({
         {label}
       </p>
 
+      {state === "recording" && (
+        <p className="mt-2 font-mono text-xs text-muted-foreground/70">{fmt(duration)}</p>
+      )}
+
+      {lastResult && state === "idle" && !uploading && (
+        <p className="mt-2 text-xs text-muted-foreground/80">
+          {Math.round(lastResult.confidence * 100)}% confidence
+        </p>
+      )}
+
+      {errorMsg && <p className="mt-2 text-xs text-support">{errorMsg}</p>}
+
       <button
         type="button"
-        onClick={toggle}
-        disabled={orbState === "processing"}
+        onClick={handleClick}
+        disabled={buttonDisabled}
         className={cn(
           "mt-6 inline-flex h-14 w-14 items-center justify-center rounded-full shadow-elevated transition-all duration-300",
           "hover:shadow-floating hover:-translate-y-0.5 disabled:opacity-60",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
-          orbState === "recording" ? "bg-support" : "bg-primary",
+          state === "recording" ? "bg-support" : "bg-primary",
         )}
-        aria-label={orbState === "recording" ? "Stop recording" : "Start recording"}
+        aria-label={state === "recording" ? "Stop recording" : "Start recording"}
       >
-        {orbState === "recording" ? (
+        {state === "recording" ? (
           <MicOff className="h-5 w-5 text-support-foreground" />
         ) : (
           <Mic className="h-5 w-5 text-primary-foreground" />
         )}
       </button>
+
+      {/* File upload — fallback for demos with clean dataset samples */}
+      {state !== "recording" && !uploading && (
+        <>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="audio/wav,audio/mpeg,audio/mp4,audio/x-m4a,audio/*"
+            className="hidden"
+            onChange={handleFileSelect}
+          />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="mt-4 inline-flex items-center gap-2 rounded-full border border-border bg-surface-elevated px-4 py-2 text-xs font-medium text-muted-foreground transition-all hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            aria-label="Upload audio file"
+          >
+            <Upload className="h-3.5 w-3.5" />
+            Upload audio file
+          </button>
+        </>
+      )}
     </div>
   );
 }

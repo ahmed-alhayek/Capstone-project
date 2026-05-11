@@ -1,6 +1,6 @@
 import * as React from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { Phone, Wind, MessageCircle, Heart } from "lucide-react";
+import { Phone, Wind, MessageCircle, Heart, Siren } from "lucide-react";
 import { SiteHeader } from "@/components/site-header";
 import { GlassPanel } from "@/components/mindful/glass-panel";
 
@@ -36,19 +36,26 @@ function CrisisPage() {
             You don't have to be alone with this.
           </h1>
           <p className="mt-4 max-w-xl text-pretty text-base leading-relaxed text-muted-foreground">
-            Take what you need from this page. There's no right next step — only the one that
-            feels possible right now.
+            Take what you need from this page. There's no right next step — only the one that feels
+            possible right now.
           </p>
         </div>
 
-        <div className="mt-10 grid gap-4 sm:grid-cols-3">
+        <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <ActionCard
             icon={Phone}
             title="Talk to a human"
-            body="988 Suicide & Crisis Lifeline · 24/7, free, confidential."
-            cta="Call 988"
-            href="tel:988"
+            body="182 — Ministry of Health Mental Health Helpline · 24/7, free, confidential."
+            cta="Call 182"
+            href="tel:182"
             primary
+          />
+          <ActionCard
+            icon={Siren}
+            title="Emergency"
+            body="112 — Emergency Services · medical, fire, police"
+            cta="Call 112"
+            href="tel:112"
           />
           <ActionCard
             icon={Wind}
@@ -68,27 +75,8 @@ function CrisisPage() {
 
         <Breath />
 
-        <GlassPanel className="mt-8 p-5">
-          <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-            Other lines, if you prefer
-          </div>
-          <ul className="mt-4 grid gap-2 sm:grid-cols-2">
-            {[
-              { name: "Samaritans (UK & ROI)", num: "116 123" },
-              { name: "Lifeline (Australia)", num: "13 11 14" },
-              { name: "Crisis Text Line (US)", num: "Text HOME to 741741" },
-              { name: "Trans Lifeline", num: "877-565-8860" },
-            ].map((r) => (
-              <li key={r.name} className="flex items-center justify-between rounded-xl px-3 py-2.5 text-sm">
-                <span className="text-muted-foreground">{r.name}</span>
-                <span className="font-medium tabular-nums">{r.num}</span>
-              </li>
-            ))}
-          </ul>
-        </GlassPanel>
-
         <p className="mt-10 text-center text-xs text-muted-foreground">
-          If you are in immediate danger, please call your local emergency number.
+          If you are in immediate danger, please call 112.
         </p>
       </main>
     </div>
@@ -115,7 +103,9 @@ function ActionCard({
     <>
       <Icon className="h-5 w-5" style={{ color: primary ? "var(--support)" : "var(--primary)" }} />
       <h2 className="mt-4 text-base font-semibold tracking-tight">{title}</h2>
-      <p className="mt-1.5 flex-1 text-sm leading-relaxed text-muted-foreground text-pretty">{body}</p>
+      <p className="mt-1.5 flex-1 text-sm leading-relaxed text-muted-foreground text-pretty">
+        {body}
+      </p>
       <span
         className="mt-5 inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium shadow-soft transition-all"
         style={{
@@ -131,9 +121,13 @@ function ActionCard({
   const className =
     "flex flex-col rounded-2xl border border-border bg-surface-elevated p-5 shadow-soft transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] hover:shadow-elevated hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background";
   return isExternal ? (
-    <a href={href} className={className}>{Inner}</a>
+    <a href={href} className={className}>
+      {Inner}
+    </a>
   ) : (
-    <Link to={href} className={className}>{Inner}</Link>
+    <Link to={href} className={className}>
+      {Inner}
+    </Link>
   );
 }
 

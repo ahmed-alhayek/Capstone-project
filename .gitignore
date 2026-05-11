@@ -1,22 +1,52 @@
+# ── Secrets ─────────────────────────────────────────────
 .env
-saved_model/
+*.env
+.env.local
+.env.*.local
+
+# ── Python ──────────────────────────────────────────────
 __pycache__/
 *.pyc
+*.pyo
+*.egg-info/
+.venv/
+venv/
 
-
-
+# ── Node / Frontend ─────────────────────────────────────
 node_modules/
 dist/
-build/
+.cache/
+.vite/
 
+# ── Audio datasets (download separately from original sources) ──
+audio_model/RAVDESS/
+audio_model/TESS/
+audio_model/SAVEE/
+audio_model/CREMA-D/
 
-venv/
-.venv/
-env/
+# ── Model weights — too big for GitHub (share via Google Drive) ──
+audio_model/saved_audio_model/
+audio_model/v2_transformers/saved_models/
+text_model/finetune/saved_models/
 
+# ── Caches ──────────────────────────────────────────────
+audio_cache_v2/
+~/audio_cache_v2/
 
-*.csv
+# ── Temp files ──────────────────────────────────────────
+temp_audio.wav
+*.tmp
+*.log
 
-# Editors
+# ── IDE / OS ────────────────────────────────────────────
 .vscode/
 .idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# ── Text model datasets and old Phase 0 weights ──
+text_model/saved_model/
+text_model/*.csv
+text_model/finetune/data/*.jsonl
+text_model/finetune/data/*.csv

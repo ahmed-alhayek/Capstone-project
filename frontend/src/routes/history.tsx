@@ -3,9 +3,17 @@ import { createFileRoute } from "@tanstack/react-router";
 import { SiteHeader } from "@/components/site-header";
 import { InsightCard } from "@/components/mindful/insight-card";
 import { GlassPanel } from "@/components/mindful/glass-panel";
-import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid } from "recharts";
-import { heatmapData, INSIGHTS, moodTimeline, MOOD_META } from "@/lib/mock";
-import { getHistory } from "@/lib/api";
+import {
+  Area,
+  AreaChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+} from "recharts";
+import { INSIGHTS, MOOD_META } from "@/lib/mock";
+import { getHistory, type HistoryEntry } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/history")({
@@ -26,22 +34,58 @@ const RANGES = [
 
 function HistoryPage() {
   const [range, setRange] = React.useState<(typeof RANGES)[number]["id"]>("month");
-  const [sessions, setSessions] = React.useState<any[]>([]);
+  const [sessions, setSessions] = React.useState<HistoryEntry[]>([]);
+  const [loading, setLoading] = React.useState(true);
 
   React.useEffect(() => {
-    getHistory().then((data) => {
-      setSessions(data.history || []);
-    }).catch((err) => console.error("Failed to fetch history", err));
+    getHistory()
+      .then((data) => setSessions(data.history || []))
+      .catch((err) => console.error("Failed to fetch history", err))
+      .finally(() => setLoading(false));
   }, []);
 
+  // Trend chart data — driven by real history, range-filtered
   const data = React.useMemo(() => {
     const r = RANGES.find((x) => x.id === range)!;
-    const all = moodTimeline();
-    return all.slice(-Math.min(r.days, all.length));
-  }, [range]);
+    return sessions.slice(-Math.min(r.days, sessions.length)).map((s) => ({
+      day: s.date,
+      score: Math.round(s.average_score),
+    }));
+  }, [range, sessions]);
 
-  const heatmap = React.useMemo(() => heatmapData(), []);
-  const avg = Math.round(data.reduce((a, b) => a + b.score, 0) / data.length);
+  const avg = data.length > 0 ? Math.round(data.reduce((a, b) => a + b.score, 0) / data.length) : 0;
+
+  // Heatmap — last 12 weeks (84 days) keyed by date, intensity from total_messages
+  const heatmap = React.useMemo(() => {
+    const today = new Date();
+    const totalDays = 12 * 7;
+
+    const byDate = new Map<string, number>();
+    sessions.forEach((s) => {
+      const d = new Date(s.date);
+      if (!isNaN(d.getTime())) {
+        byDate.set(d.toISOString().slice(0, 10), s.total_messages);
+      }
+    });
+
+    const flat: Array<{ intensity: number }> = [];
+    for (let i = totalDays - 1; i >= 0; i--) {
+      const date = new Date(today);
+      date.setDate(today.getDate() - i);
+      const key = date.toISOString().slice(0, 10);
+      const messages = byDate.get(key) || 0;
+      const intensity = messages === 0 ? 0 : messages <= 5 ? 1 : messages <= 15 ? 2 : 3;
+      flat.push({ intensity });
+    }
+
+    const weeks: Array<Array<{ intensity: number }>> = [];
+    for (let w = 0; w < 12; w++) {
+      weeks.push(flat.slice(w * 7, (w + 1) * 7));
+    }
+    return weeks;
+  }, [sessions]);
+
+  const recentSessions = React.useMemo(() => [...sessions].reverse().slice(0, 10), [sessions]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -74,65 +118,80 @@ function HistoryPage() {
         </div>
 
         {/* Trend chart */}
-        <GlassPanel elevated className="mt-8 p-5 sm:p-6 animate-[rise-in_0.5s_cubic-bezier(0.22,1,0.36,1)_both]">
+        <GlassPanel
+          elevated
+          className="mt-8 p-5 sm:p-6 animate-[rise-in_0.5s_cubic-bezier(0.22,1,0.36,1)_both]"
+        >
           <div className="flex items-baseline justify-between">
             <div>
               <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
                 Wellness trend
               </div>
               <div className="mt-1 text-2xl font-semibold tabular-nums">
-                {avg}
-                <span className="ml-2 text-sm font-normal text-muted-foreground">average</span>
+                {data.length > 0 ? avg : "—"}
+                <span className="ml-2 text-sm font-normal text-muted-foreground">
+                  {data.length > 0 ? "average" : "no data yet"}
+                </span>
               </div>
             </div>
           </div>
           <div className="mt-4 h-56 sm:h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={data} margin={{ top: 6, right: 8, left: -16, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="fillScore" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="var(--primary)" stopOpacity={0.35} />
-                    <stop offset="100%" stopColor="var(--primary)" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid stroke="var(--border-soft)" vertical={false} />
-                <XAxis
-                  dataKey="day"
-                  stroke="var(--muted-foreground)"
-                  fontSize={11}
-                  tickLine={false}
-                  axisLine={false}
-                  interval="preserveStartEnd"
-                />
-                <YAxis
-                  stroke="var(--muted-foreground)"
-                  fontSize={11}
-                  tickLine={false}
-                  axisLine={false}
-                  domain={[20, 100]}
-                />
-                <Tooltip
-                  cursor={{ stroke: "var(--border)", strokeWidth: 1 }}
-                  contentStyle={{
-                    background: "var(--popover)",
-                    border: "1px solid var(--border)",
-                    borderRadius: 12,
-                    boxShadow: "var(--shadow-elevated)",
-                    fontSize: 12,
-                    color: "var(--popover-foreground)",
-                  }}
-                  labelStyle={{ color: "var(--muted-foreground)", marginBottom: 4 }}
-                />
-                <Area
-                  type="monotone"
-                  dataKey="score"
-                  stroke="var(--primary)"
-                  strokeWidth={2.5}
-                  fill="url(#fillScore)"
-                  animationDuration={900}
-                />
-              </AreaChart>
-            </ResponsiveContainer>
+            {loading ? (
+              <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+                Loading…
+              </div>
+            ) : data.length === 0 ? (
+              <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+                Once you've had a few sessions, the arc will appear here.
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={data} margin={{ top: 6, right: 8, left: -16, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="fillScore" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="var(--primary)" stopOpacity={0.35} />
+                      <stop offset="100%" stopColor="var(--primary)" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid stroke="var(--border-soft)" vertical={false} />
+                  <XAxis
+                    dataKey="day"
+                    stroke="var(--muted-foreground)"
+                    fontSize={11}
+                    tickLine={false}
+                    axisLine={false}
+                    interval="preserveStartEnd"
+                  />
+                  <YAxis
+                    stroke="var(--muted-foreground)"
+                    fontSize={11}
+                    tickLine={false}
+                    axisLine={false}
+                    domain={[20, 100]}
+                  />
+                  <Tooltip
+                    cursor={{ stroke: "var(--border)", strokeWidth: 1 }}
+                    contentStyle={{
+                      background: "var(--popover)",
+                      border: "1px solid var(--border)",
+                      borderRadius: 12,
+                      boxShadow: "var(--shadow-elevated)",
+                      fontSize: 12,
+                      color: "var(--popover-foreground)",
+                    }}
+                    labelStyle={{ color: "var(--muted-foreground)", marginBottom: 4 }}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="score"
+                    stroke="var(--primary)"
+                    strokeWidth={2.5}
+                    fill="url(#fillScore)"
+                    animationDuration={900}
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            )}
           </div>
         </GlassPanel>
 
@@ -155,7 +214,7 @@ function HistoryPage() {
                             ? "var(--border-soft)"
                             : `color-mix(in oklab, var(--primary) ${cell.intensity * 28}%, var(--border-soft))`,
                       }}
-                      title={`Week ${wi + 1}, day ${di + 1}: ${cell.intensity} sessions`}
+                      title={`Week ${wi + 1}, day ${di + 1}: intensity ${cell.intensity}`}
                     />
                   ))}
                 </div>
@@ -200,30 +259,44 @@ function HistoryPage() {
             Recent sessions
           </h2>
           <div className="mt-4 overflow-hidden rounded-2xl border border-border bg-surface-elevated shadow-soft">
-            <ul className="divide-y divide-border-soft">
-              {sessions.map((s: any, idx) => {
-                const emotionKey = s.dominant_emotion as keyof typeof MOOD_META;
-                const meta = MOOD_META[emotionKey] || { emoji: "💭", color: "var(--foreground)" };
-                return (
-                  <li
-                    key={idx}
-                    className="flex items-center gap-4 px-4 py-3.5 transition-colors hover:bg-muted/50"
-                  >
-                    <span className="text-2xl" aria-hidden>{meta.emoji}</span>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-baseline gap-2">
-                        <span className="text-sm font-medium">
-                          {s.date}
-                        </span>
-                        <span className="text-[11px] text-muted-foreground">{s.total_messages} messages</span>
+            {loading ? (
+              <div className="px-4 py-8 text-center text-sm text-muted-foreground">Loading…</div>
+            ) : recentSessions.length === 0 ? (
+              <div className="px-4 py-8 text-center text-sm text-muted-foreground">
+                No sessions yet. Your first chat will land here.
+              </div>
+            ) : (
+              <ul className="divide-y divide-border-soft">
+                {recentSessions.map((s, idx) => {
+                  const emotionKey = s.dominant_emotion as keyof typeof MOOD_META;
+                  const meta = MOOD_META[emotionKey] || { emoji: "💭", color: "var(--foreground)" };
+                  return (
+                    <li
+                      key={`${s.date}-${idx}`}
+                      className="flex items-center gap-4 px-4 py-3.5 transition-colors hover:bg-muted/50"
+                    >
+                      <span className="text-2xl" aria-hidden>
+                        {meta.emoji}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-baseline gap-2">
+                          <span className="text-sm font-medium">{s.date}</span>
+                          <span className="text-[11px] text-muted-foreground">
+                            {s.total_messages} messages
+                          </span>
+                        </div>
+                        <p className="mt-0.5 truncate text-sm text-muted-foreground">
+                          Dominant: {s.dominant_emotion}
+                        </p>
                       </div>
-                      <p className="mt-0.5 truncate text-sm text-muted-foreground">Session summary</p>
-                    </div>
-                    <span className="text-sm font-semibold tabular-nums text-foreground/80">{Math.round(s.average_score)}</span>
-                  </li>
-                );
-              })}
-            </ul>
+                      <span className="text-sm font-semibold tabular-nums text-foreground/80">
+                        {Math.round(s.average_score)}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
           </div>
         </section>
       </main>

@@ -141,7 +141,7 @@ for actor_folder in tqdm(actor_folders, desc="Processing actors"):
 X = np.array(all_features)
 y = np.array(all_labels)
 
-print(f"\n✅ Feature extraction complete!")
+print(f"\n Feature extraction complete!")
 print(f"   Total samples : {len(X)}")
 print(f"   Feature size  : {X.shape[1]} per sample")
 print(f"\nEmotion distribution:")
@@ -174,8 +174,8 @@ np.save('y_test.npy',  y_test)
 # Save emotion labels mapping
 np.save('emotion_labels.npy', np.array(list(EMOTION_MAP.values())))
 
-print(f"\n✅ Saved feature files:")
+print(f"\n Saved feature files:")
 print(f"   X_train.npy | X_val.npy | X_test.npy")
 print(f"   y_train.npy | y_val.npy | y_test.npy")
 print(f"   emotion_labels.npy")
-print(f"\nReady for model training! ✅")
+print(f"\nReady for model training! ")

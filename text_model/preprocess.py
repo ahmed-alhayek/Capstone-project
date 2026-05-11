@@ -1,11 +1,6 @@
 """
 STEP 1 (Final) — Text Dataset Preprocessing
-AI Mental Health Companion | Capstone Project
-=============================================
-11 emotions: joy (positive) + 10 original emotions (minus grief).
-This gives the best balance between accuracy and emotion coverage.
 
-📁 File location: mental_health_companion/text_model/preprocess.py
 """
 
 import pandas as pd
@@ -141,7 +136,7 @@ print(f"  Test       : {len(test_df):,}")
 train_df.to_csv('train.csv', index=False)
 val_df.to_csv('val.csv',     index=False)
 test_df.to_csv('test.csv',   index=False)
-print("\n✅ Saved: train.csv | val.csv | test.csv")
+print("\n Saved: train.csv | val.csv | test.csv")
 
 # ── EMOTION DISTRIBUTION ──────────────────────────────────────────────────────
 print("\nEmotion distribution in training set:")

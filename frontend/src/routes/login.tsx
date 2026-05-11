@@ -84,20 +84,17 @@ export function AuthLayout({ mode }: { mode: "login" | "register" }) {
                 : "Create your account. It takes a moment, and it's entirely yours."}
             </p>
 
-            <form
-              className="mt-8 space-y-4"
-              onSubmit={handleSubmit}
-            >
+            <form className="mt-8 space-y-4" onSubmit={handleSubmit}>
               {!isLogin && (
                 <div className="space-y-1.5">
                   <Label htmlFor="name">Name</Label>
-                  <Input 
-                    id="name" 
-                    name="name" 
-                    value={name} 
-                    onChange={(e) => setName(e.target.value)} 
-                    placeholder="What should we call you?" 
-                    autoComplete="name" 
+                  <Input
+                    id="name"
+                    name="name"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="What should we call you?"
+                    autoComplete="name"
                   />
                 </div>
               )}
@@ -115,7 +112,17 @@ export function AuthLayout({ mode }: { mode: "login" | "register" }) {
                 />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="password">Password</Label>
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="password">Password</Label>
+                  {isLogin && (
+                    <Link
+                      to="/forgot-password"
+                      className="text-xs text-muted-foreground underline-offset-4 hover:underline"
+                    >
+                      Forgot password?
+                    </Link>
+                  )}
+                </div>
                 <Input
                   id="password"
                   name="password"
@@ -135,27 +142,6 @@ export function AuthLayout({ mode }: { mode: "login" | "register" }) {
               >
                 {isLoading && <Loader2 className="h-4 w-4 animate-spin" />}
                 {isLogin ? "Sign in" : "Create account"}
-              </button>
-
-              <div className="relative my-2 flex items-center text-[11px] uppercase tracking-wider text-muted-foreground">
-                <span className="flex-1 border-t border-border" />
-                <span className="px-3">or</span>
-                <span className="flex-1 border-t border-border" />
-              </div>
-
-              <button
-                type="button"
-                onClick={() => (window.location.href = "/chat")}
-                className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-full border border-border bg-surface-elevated text-sm font-medium transition-all hover:shadow-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                Continue with Apple
-              </button>
-              <button
-                type="button"
-                onClick={() => (window.location.href = "/chat")}
-                className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-full border border-border bg-surface-elevated text-sm font-medium transition-all hover:shadow-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                Continue with Google
               </button>
             </form>
 
@@ -196,9 +182,21 @@ export function AuthLayout({ mode }: { mode: "login" | "register" }) {
             </h2>
             <ul className="space-y-5">
               {[
-                { icon: Lock, title: "End-to-end private", body: "Encrypted before it leaves your device." },
-                { icon: ShieldCheck, title: "Never sold", body: "No ads. No trackers. No data brokers." },
-                { icon: Sparkles, title: "You own your data", body: "Export or delete everything, any time." },
+                {
+                  icon: Lock,
+                  title: "End-to-end private",
+                  body: "Encrypted before it leaves your device.",
+                },
+                {
+                  icon: ShieldCheck,
+                  title: "Never sold",
+                  body: "No ads. No trackers. No data brokers.",
+                },
+                {
+                  icon: Sparkles,
+                  title: "You own your data",
+                  body: "Export or delete everything, any time.",
+                },
               ].map(({ icon: Icon, title, body }) => (
                 <li key={title} className="flex items-start gap-3">
                   <Icon className="mt-0.5 h-5 w-5 shrink-0" style={{ color: "var(--primary)" }} />
