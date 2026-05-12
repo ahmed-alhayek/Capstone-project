@@ -1,6 +1,6 @@
 import * as React from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { Mic, MicOff, Send, MessageSquare, Settings, Plus, X, Upload } from "lucide-react";
+import { Mic, MicOff, Send, MessageSquare, Settings, Plus, X, Upload, Camera } from "lucide-react";
 import { SiteHeader } from "@/components/site-header";
 import { TelemetryPill } from "@/components/mindful/telemetry-pill";
 import { BreathingOrb, type OrbState } from "@/components/mindful/breathing-orb";
@@ -11,9 +11,12 @@ import {
   sendMessage,
   getHistory,
   analyzeAudioV2,
+  analyzeFace,
   getMessagesByDate,
   type AudioAnalysisResult,
+  type FaceAnalysisResult,
 } from "@/lib/api";
+import { useFaceCapture } from "@/hooks/use-face-capture";
 import { useAudioRecorder } from "@/hooks/use-audio-recorder";
 import { cn } from "@/lib/utils";
 
@@ -93,7 +96,8 @@ function ChatPage() {
 
   const [messages, setMessages] = React.useState<Message[]>(persisted.messages ?? []);
   const [draft, setDraft] = React.useState("");
-  const [mode, setMode] = React.useState<"text" | "voice">("text");
+  const [mode, setMode] = React.useState<"text" | "voice" | "face">("text");
+  const [faceEmotions, setFaceEmotions] = React.useState<Record<string, number> | null>(null);
   const [crisisDemo, setCrisisDemo] = React.useState(false);
   const [score, setScore] = React.useState<ScoreState>(
     persisted.score ?? { value: 100, mood: "calm", trend: "steady" },
@@ -140,7 +144,8 @@ function ChatPage() {
     setThinking(true);
 
     try {
-      const response = (await sendMessage(text)) as ChatResponse;
+      const response = (await sendMessage(text, null, faceEmotions)) as ChatResponse;
+      setFaceEmotions(null);
       setMessages((m) => [
         ...m,
         { id: `a-${Date.now()}`, role: "ai", text: response.response, ts: Date.now() },
@@ -203,6 +208,14 @@ function ChatPage() {
   // Called when VoiceMode finishes analyzing audio with HuBERT
   const handleAudioAnalyzed = (result: AudioAnalysisResult) => {
     setEmotions(result.emotions);
+  };
+
+  // Called when FaceMode captures and analyzes a frame
+  const handleFaceAnalyzed = (result: FaceAnalysisResult) => {
+    if (result.face_detected) {
+      setFaceEmotions(result.emotions);
+      setEmotions(result.emotions);
+    }
   };
 
   return (
@@ -276,7 +289,7 @@ function ChatPage() {
 
             {/* Mode toggle + settings */}
             <div className="rounded-2xl border border-border bg-surface-elevated p-3 shadow-soft">
-              <div className="grid grid-cols-2 gap-1 rounded-xl bg-muted p-1">
+              <div className="grid grid-cols-3 gap-1 rounded-xl bg-muted p-1">
                 <button
                   type="button"
                   onClick={() => setMode("text")}
@@ -300,6 +313,18 @@ function ChatPage() {
                   )}
                 >
                   <Mic className="h-3.5 w-3.5" /> Voice
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMode("face")}
+                  className={cn(
+                    "inline-flex items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-medium transition-all",
+                    mode === "face"
+                      ? "bg-surface-elevated shadow-soft text-foreground"
+                      : "text-muted-foreground",
+                  )}
+                >
+                  <Camera className="h-3.5 w-3.5" /> Face
                 </button>
               </div>
 
@@ -443,8 +468,14 @@ function ChatPage() {
                 </div>
               )}
             </>
-          ) : (
+          ) : mode === "voice" ? (
             <VoiceMode onExit={() => setMode("text")} onAudioAnalyzed={handleAudioAnalyzed} />
+          ) : (
+            <FaceMode
+              onExit={() => setMode("text")}
+              onFaceAnalyzed={handleFaceAnalyzed}
+              pendingEmotions={faceEmotions}
+            />
           )}
         </section>
       </div>
@@ -702,6 +733,183 @@ function VoiceMode({
           >
             <Upload className="h-3.5 w-3.5" />
             Upload audio file
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ─── Face mode (webcam capture + image upload) ─────────────────────────
+function FaceMode({
+  onExit,
+  onFaceAnalyzed,
+  pendingEmotions,
+}: {
+  onExit: () => void;
+  onFaceAnalyzed: (result: FaceAnalysisResult) => void;
+  pendingEmotions: Record<string, number> | null;
+}) {
+  const { state, videoRef, start, stop, capture } = useFaceCapture();
+  const [analyzing, setAnalyzing] = React.useState(false);
+  const [lastResult, setLastResult] = React.useState<FaceAnalysisResult | null>(null);
+  const [errorMsg, setErrorMsg] = React.useState<string | null>(null);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  const handleStart = async () => {
+    setErrorMsg(null);
+    try {
+      await start();
+    } catch (err: unknown) {
+      const name = (err as { name?: string })?.name;
+      setErrorMsg(name === "NotAllowedError" ? "Camera permission denied" : "Could not access camera");
+    }
+  };
+
+  const handleCapture = async () => {
+    setErrorMsg(null);
+    setAnalyzing(true);
+    try {
+      const blob = await capture();
+      const result = await analyzeFace(blob);
+      setLastResult(result);
+      if (!result.face_detected) {
+        setErrorMsg("No face detected — move closer or improve lighting");
+      } else {
+        onFaceAnalyzed(result);
+      }
+    } catch (err) {
+      console.error(err);
+      setErrorMsg(
+        (err as any)?.response?.data?.detail ||
+        (err as any)?.response?.data?.error ||
+        "Face analysis failed",
+      );
+    } finally {
+      setAnalyzing(false);
+    }
+  };
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    if (!file) return;
+    setErrorMsg(null);
+    setAnalyzing(true);
+    try {
+      const result = await analyzeFace(file);
+      setLastResult(result);
+      if (!result.face_detected) {
+        setErrorMsg("No face detected in image");
+      } else {
+        onFaceAnalyzed(result);
+      }
+    } catch (err) {
+      console.error(err);
+      setErrorMsg(
+        (err as any)?.response?.data?.detail ||
+        (err as any)?.response?.data?.error ||
+        "Could not analyze that image",
+      );
+    } finally {
+      setAnalyzing(false);
+    }
+  };
+
+  React.useEffect(() => {
+    return () => stop();
+  }, [stop]);
+
+  const label = analyzing
+    ? "Analyzing…"
+    : lastResult?.face_detected
+      ? `Detected: ${lastResult.dominant_emotion}`
+      : state === "active"
+        ? "Tap capture to analyze your expression"
+        : state === "requesting"
+          ? "Allow camera…"
+          : "Start camera or upload an image";
+
+  return (
+    <div className="relative flex flex-1 flex-col items-center justify-center rounded-3xl border border-border-soft bg-surface-elevated/40 p-6">
+      <button
+        type="button"
+        onClick={onExit}
+        className="absolute right-4 top-4 inline-flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        aria-label="Exit face mode"
+      >
+        <X className="h-4 w-4" />
+      </button>
+
+      {state === "active" ? (
+        <div className="relative mb-4 overflow-hidden rounded-2xl border border-border shadow-soft">
+          <video ref={videoRef} className="h-48 w-64 object-cover" muted playsInline />
+          {analyzing && (
+            <div className="absolute inset-0 flex items-center justify-center bg-background/60">
+              <span className="text-xs text-muted-foreground">Analyzing…</span>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="mb-4 flex h-48 w-64 items-center justify-center rounded-2xl border border-dashed border-border bg-muted/30">
+          <Camera className="h-8 w-8 text-muted-foreground/40" />
+        </div>
+      )}
+
+      <p className="text-sm font-medium text-muted-foreground" aria-live="polite">
+        {label}
+      </p>
+
+      {lastResult?.face_detected && !analyzing && (
+        <p className="mt-1 text-xs text-muted-foreground/80">
+          {Math.round(lastResult.confidence * 100)}% confidence
+          {pendingEmotions ? " · will be used in next message" : ""}
+        </p>
+      )}
+
+      {errorMsg && <p className="mt-2 text-xs text-support">{errorMsg}</p>}
+
+      <div className="mt-6 flex items-center gap-3">
+        {state !== "active" ? (
+          <button
+            type="button"
+            onClick={handleStart}
+            disabled={state === "requesting"}
+            className="inline-flex h-14 w-14 items-center justify-center rounded-full bg-primary shadow-elevated transition-all hover:shadow-floating hover:-translate-y-0.5 disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+            aria-label="Start camera"
+          >
+            <Camera className="h-5 w-5 text-primary-foreground" />
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={handleCapture}
+            disabled={analyzing}
+            className="inline-flex h-14 w-14 items-center justify-center rounded-full bg-primary shadow-elevated transition-all hover:shadow-floating hover:-translate-y-0.5 disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+            aria-label="Capture expression"
+          >
+            <Camera className="h-5 w-5 text-primary-foreground" />
+          </button>
+        )}
+      </div>
+
+      {!analyzing && (
+        <>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp,image/*"
+            className="hidden"
+            onChange={handleFileSelect}
+          />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="mt-4 inline-flex items-center gap-2 rounded-full border border-border bg-surface-elevated px-4 py-2 text-xs font-medium text-muted-foreground transition-all hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            aria-label="Upload image"
+          >
+            <Upload className="h-3.5 w-3.5" />
+            Upload image
           </button>
         </>
       )}
