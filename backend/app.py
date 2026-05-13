@@ -22,6 +22,7 @@ from flask_cors import CORS
 from dotenv import load_dotenv
 from audio_v2_route import audio_v2_bp
 from text_v2_route import text_v2_bp
+from face_route import face_bp
 
 # ── Load environment variables ────────────────────────────────────────────────
 load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
@@ -50,6 +51,7 @@ app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": ["http://localhost:5173", "http://localhost:3000", "http://localhost:8080"]}}, supports_credentials=True)
 app.register_blueprint(audio_v2_bp)
 app.register_blueprint(text_v2_bp)
+app.register_blueprint(face_bp)
 
 # ── Initialize database ───────────────────────────────────────────────────────
 db = DatabaseManager()

@@ -63,10 +63,15 @@ export const resetPassword = async (token: string, password: string) => {
 
 // ── CHAT ──────────────────────────────────────────────────────────────────────
 
-export const sendMessage = async (message: string, audioEmotions: any = null) => {
+export const sendMessage = async (
+  message: string,
+  audioEmotions: any = null,
+  faceEmotions: any = null,
+) => {
   const response = await api.post("/chat", {
     message,
     audio_emotions: audioEmotions,
+    face_emotions: faceEmotions,
   });
   return response.data;
 };
@@ -75,6 +80,26 @@ export const analyzeAudio = async (audioBlob: Blob) => {
   const formData = new FormData();
   formData.append("audio", audioBlob, "recording.wav");
   const response = await api.post("/analyze-audio", formData, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+  return response.data;
+};
+
+// ── FACE (EfficientNetV2S FER+) ───────────────────────────────────────────────
+
+export interface FaceAnalysisResult {
+  emotions: Record<string, number>;
+  dominant_emotion: string;
+  confidence: number;
+  face_detected: boolean;
+  model: string;
+}
+
+export const analyzeFace = async (imageBlob: Blob): Promise<FaceAnalysisResult> => {
+  const formData = new FormData();
+  const filename = imageBlob instanceof File ? imageBlob.name : "capture.jpg";
+  formData.append("image", imageBlob, filename);
+  const response = await api.post<FaceAnalysisResult>("/analyze-face", formData, {
     headers: { "Content-Type": "multipart/form-data" },
   });
   return response.data;
