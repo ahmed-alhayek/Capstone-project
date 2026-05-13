@@ -200,9 +200,55 @@ function ChatPage() {
 
   const displayedMessages = viewingDate ? viewedMessages : messages;
 
-  // Called when VoiceMode finishes analyzing audio with HuBERT
-  const handleAudioAnalyzed = (result: AudioAnalysisResult) => {
+  // Called when VoiceMode finishes analyzing audio with HuBERT.
+  // Also asks the chatbot for a reply so the conversation actually moves forward.
+  const handleAudioAnalyzed = async (result: AudioAnalysisResult) => {
+    // 1) Update the emotion breakdown panel right away so the user sees the detection.
     setEmotions(result.emotions);
+
+    // 2) Add a "voice message" bubble for the user side of the chat.
+    const voiceBubble: Message = {
+      id: `u-voice-${Date.now()}`,
+      role: "user",
+      text: `🎤 Voice message · sounding ${result.dominant_emotion}`,
+      ts: Date.now(),
+    };
+    setMessages((m) => [...m, voiceBubble]);
+    setThinking(true);
+
+    try {
+      // 3) Ask the chatbot for a reply. We pass a short placeholder text that
+      //    mirrors the detected audio emotion, so the text branch of fusion
+      //    reinforces the audio branch instead of fighting it.
+      const placeholderMsg = `(Voice note — I'm feeling ${result.dominant_emotion}.)`;
+      const response = (await sendMessage(placeholderMsg, result.emotions)) as ChatResponse;
+
+      // 4) Append the AI reply, update score + fused emotions.
+      setMessages((m) => [
+        ...m,
+        { id: `a-voice-${Date.now()}`, role: "ai", text: response.response, ts: Date.now() },
+      ]);
+
+      const newScore = response.mental_health_score;
+      const previousValue = score.value;
+      const trend: ScoreState["trend"] =
+        newScore - previousValue > 1 ? "up" : newScore - previousValue < -1 ? "down" : "steady";
+
+      setScore({
+        value: Math.round(newScore),
+        mood: emotionsToMood(response.fused_emotions, newScore),
+        trend,
+      });
+      setEmotions(response.fused_emotions);
+
+      // 5) Hold on the voice screen so the user can read the detected emotion,
+      //    then slip back to text view where the reply is waiting.
+      setTimeout(() => setMode("text"), 15000);
+    } catch (error) {
+      console.error("Voice → chatbot pipeline failed:", error);
+    } finally {
+      setThinking(false);
+    }
   };
 
   return (
