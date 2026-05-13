@@ -22,9 +22,9 @@ from dataclasses import dataclass
 from typing import List, Tuple
 
 
-# ============================================================
+
 # Unified label space (8 emotions, RAVDESS native ordering)
-# ============================================================
+
 EMOTIONS = {
     0: "neutral",
     1: "calm",       # RAVDESS only
@@ -39,12 +39,12 @@ EMOTION_TO_ID = {v: k for k, v in EMOTIONS.items()}
 NUM_CLASSES = len(EMOTIONS)
 
 
-# ============================================================
+# 
 # Globally unique actor IDs:
 #   RAVDESS: 1-24    (native, odd=M, even=F)
 #   TESS:    25 (OAF, F), 26 (YAF, F)
 #   SAVEE:   27 (DC, M), 28 (JE, M), 29 (JK, M), 30 (KL, M)
-# ============================================================
+# 
 
 
 @dataclass
@@ -57,9 +57,8 @@ class AudioSample:
     speaker_gender: str   # "M" | "F"
 
 
-# ============================================================
+
 # RAVDESS
-# ============================================================
 # Filename: 03-01-06-01-02-01-12.wav
 #   pos 3 = emotion (01..08)
 #   pos 7 = actor (1..24)
@@ -104,11 +103,11 @@ def load_ravdess(root: Path) -> List[AudioSample]:
     return samples
 
 
-# ============================================================
+
 # TESS
-# ============================================================
+
 # Folders like: OAF_angry, YAF_pleasant_surprised, OAF_Sad
-# (case is inconsistent across folder names in this Kaggle release)
+
 TESS_EMOTION_FOLDER_MAP = {
     "angry": 4,
     "disgust": 6,
@@ -148,7 +147,7 @@ def load_tess(root: Path) -> List[AudioSample]:
     return samples
 
 
-# ============================================================
+
 # SAVEE
 # ============================================================
 # Filenames look like:  DC_a01.wav, KL_su15.wav, JE_sa03.wav
@@ -212,10 +211,9 @@ def load_all(audio_root: str | Path) -> List[AudioSample]:
     )
 
 
-# ============================================================
-# Stratified random split (Phase 2C - follows Pepino 2021,
-# Chen 2022, Morais 2022 evaluation protocol)
-# ============================================================
+
+# Stratified random split 
+
 VAL_FRAC = 0.10
 TEST_FRAC = 0.10
 SPLIT_SEED = 42
